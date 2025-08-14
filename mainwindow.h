@@ -13,6 +13,14 @@
 
 #include "notificationbanner.h"
 
+// Naviiii
+#include "mapview.h"
+#include <QListWidget>
+#include <QSet>
+#include <QPair>
+#include <QMessageBox>
+#include <QMediaPlayer>
+
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
 QT_END_NAMESPACE
@@ -56,6 +64,13 @@ public:
 
     // MainWindow에 “현재 계정 id” getter + 진입 시 복원 호출
     int accountId() const { return m_accountId; }
+
+    // Naviiii
+    MapView* getMapView() const { return m_mapView; }
+    void handleSpeedLimitUI(int curSpeedLimit, int currentSpeed);
+    void handleTunnelAlert(bool isTunnelNow, const QString& wayName, qint64 prevNid, qint64 currNid, double wayLength);
+
+    void startRouteSimulation();
 
 private slots:
     void updateDateTime(); // Clock
@@ -104,7 +119,38 @@ private:
 
     void applyUserButtonAvatar(const QString& path);
     static QPixmap makeRounded(const QString& path, const QSize& size, int radius);
-    //
+    
+
+    // Naviiii
+    MapView* m_mapView = nullptr;
+    QVector<Node> m_nodes;
+    QVector<Way> m_ways;
+
+    QTimer* m_simulateTimer = nullptr;
+    int m_currentRouteIdx = 0;
+    QListWidget* m_recentPlacesList = nullptr;  // 최근 방문 장소 목록 (미정)
+    void loadMapData();
+    void routeTest();
+    QSet<QPair<qint64, qint64>> m_tunnelEdges;
+
+    QVector<Node> parseNodesFromCsv(const QString& filename);
+    QVector<Way> parseWaysFromCsv(const QString& filename);
+    QSet<QPair<qint64, qint64>> extractTunnelEdges(const QVector<Way>& ways);
+
+    int m_prevSpeedLimit = -1;                  // 현재 적용 제한속도
+    bool m_inTunnel = false;                     // 터널 구간 진입 상태
+
+    QMessageBox* m_tunnelPopup = nullptr;        // 터널 진입 팝업
+    QMessageBox* m_speedLimitPopup = nullptr;    // 제한속도 안내 팝업
+
+    int getCurrentSpeedLimit(qint64 nodeId);     // 제한속도 반환 함수 (선언)
+    QLabel* speedLimitLabel = nullptr;
+
+    QMediaPlayer* m_speedAlertPlayer = nullptr;
+    bool m_speedAlertOn = false;    
+    void playSpeedAlert();
+    void stopSpeedAlert();
+
 
 protected:
     void resizeEvent(QResizeEvent *event) override;

@@ -47,6 +47,15 @@
 #include <cstring>
 // FIFO
 #define PATH_FIFO "/tmp/qt_fifo"
+// Naviii
+#include "navi_page.h"                          // navigation
+#include "navi_utils.h"   // calculateBearing 선언 포함
+// 자연스럽게 움직이는지 테스트 0810
+#include <cstdlib>     // rand(), srand()
+#include <ctime>       // time()
+#include <cmath>
+#include <QtMath>
+
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -54,6 +63,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_timer(new QTimer(this))
 {
     qputenv("QT_GSTREAMER_USE_OVERLAY", "0");
+    srand(static_cast<unsigned int>(time(nullptr))); // 0810
 
     ui->setupUi(this);
 
@@ -113,11 +123,6 @@ MainWindow::MainWindow(QWidget *parent)
     // init home_module
     initHomePage(this);
 
-
-
-    // init another_module....
-    // ...
-
     // init value
     updateDateTime();
 
@@ -160,6 +165,46 @@ MainWindow::MainWindow(QWidget *parent)
 
     // init value FAN Image(not gif)
     setAirconGif(this, ":/gif/aircon_fan.png", true);
+
+
+    // Naviiii
+// ================ navigation init ================
+    // 1) MapView 생성 및 배치
+    m_mapView = new MapView(this);
+    if (ui->mapContainer) {
+        auto* layout = new QVBoxLayout();
+        layout->setContentsMargins(0,0,0,0);
+        layout->addWidget(m_mapView);
+        ui->mapContainer->setLayout(layout);
+    } else {
+        setCentralWidget(m_mapView);
+    }
+
+    // 2) 지도 데이터 로드
+    loadMapData();
+
+    QListWidget* destList = ui->EnterWidget->widget(3)->findChild<QListWidget*>("list_dest_places");
+    if (destList) {
+        destList->clear(); 
+    // 목적지 좌표 매핑
+        QMap<QString, QPair<double,double>> placeCoords = {
+            {"list1",  {37.5133, 127.1078}},
+            {"list2",  {37.554722, 126.970833}},
+            {"list3",  {37.497942, 127.027621}},
+            {"gadi",   {37.4810, 126.8820}},
+            {"pangyo", {37.3860, 127.1110}}
+        };
+
+        for (const QString& placeName : placeCoords.keys()) {
+            QListWidgetItem* item = new QListWidgetItem(placeName);
+            destList->addItem(item);
+        }
+    }
+
+    // 3) 내비게이션 시그널-슬롯 초기화
+    initNaviConnections(this);
+    QMediaPlayer* m_speedAlertPlayer = nullptr;
+    bool m_speedAlertOn = false;
 }
 
 void MainWindow::updateDateTime()
@@ -684,6 +729,11 @@ void MainWindow::slideToPage(int index)
 
 MainWindow::~MainWindow()
 {
+    if (m_speedAlertPlayer) {
+        m_speedAlertPlayer->stop();
+        delete m_speedAlertPlayer;
+        m_speedAlertPlayer = nullptr;
+    }
     delete ui;
 }
 
@@ -845,4 +895,630 @@ void MainWindow::setUserWallpaperNum(int idx) {
     if (oldv == idx) return; // (옵션)
     shm_ptr->user.wallpaper_num = idx;
     logWrite("user.wallpaper_num", oldv, idx);
+}
+
+
+// Naviiii
+// ========== node parser ==========
+QVector<Node> MainWindow::parseNodesFromCsv(const QString &filename)
+{
+    QVector<Node> nodes;
+    QFile file(filename);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "Failed to open nodes csv:" << filename;
+        return nodes;
+    }
+    // 도로 정보 추가 후 
+    QTextStream in(&file);
+    QString headerLine = in.readLine();  // 헤더 건너뛰기
+
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (line.isEmpty()) continue;
+
+        QStringList parts = line.split(',');
+
+        // 최소 3개 컬럼 필요: osmid,y,x
+        if (parts.size() < 3) continue;
+
+        bool okId, okLat, okLon;
+        qint64 id = parts[0].toLongLong(&okId);
+        double lat = parts[1].toDouble(&okLat);
+        double lon = parts[2].toDouble(&okLon);
+
+        if (okId && okLat && okLon) {
+            Node node;
+            node.id = id;
+            node.lat = lat;
+            node.lon = lon;
+            nodes.append(node);
+        }
+    }
+    //qDebug() << "parseNodesFromCsv: loaded node count =" << nodes.size();
+    return nodes;
+}
+
+QStringList parseCsvLine(const QString &line) {
+    QStringList result;
+    QString field;
+    bool inQuotes = false;
+
+    for (int i = 0; i < line.length(); ++i) {
+        QChar c = line[i];
+
+        if (c == '"') {
+            inQuotes = !inQuotes;
+        } else if (c == ',' && !inQuotes) {
+            result.append(field.trimmed());
+            field.clear();
+        } else {
+            field.append(c);
+        }
+    }
+
+    result.append(field.trimmed()); // 마지막 필드
+    return result;
+}
+
+
+// =========== way parser ===========
+QVector<Way> MainWindow::parseWaysFromCsv(const QString &filename)
+{
+    QVector<Way> ways;
+    QFile file(filename);
+
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        qWarning() << "Failed to open ways csv:" << filename;
+        return ways;
+    }
+
+    // 도로 정보 추가 후
+    QTextStream in(&file);
+    QString headerLine = in.readLine();  // 헤더 건너뛰기
+
+    while (!in.atEnd()) {
+        QString line = in.readLine().trimmed();
+        if (line.isEmpty()) continue;
+        QStringList parts = parseCsvLine(line);
+
+        if (parts.size() < 2) continue;
+
+        bool okU, okV;
+        qint64 u = parts[0].toLongLong(&okU);
+        qint64 v = parts[1].toLongLong(&okV);
+        if (!(okU && okV)) continue;
+
+        Way way;
+        way.node_ids.clear();
+        way.node_ids.append(u);
+        way.node_ids.append(v);
+
+        // highway 타입 (3번째 컬럼)
+        if (parts.size() > 2)
+            way.highway_type = parts[2].trimmed();
+
+        // name (4번째 컬럼)
+        if (parts.size() > 3)
+            way.name = parts[3].trimmed();
+
+        // maxspeed
+        if (parts.size() > 5) {
+            QString speedStr = parts[5].trimmed();
+            // if (speedStr != "") qDebug() << "maxspeed raw field:" << speedStr;
+            bool okSpeed = false;
+            int speed = speedStr.toInt(&okSpeed);
+            way.maxspeed = okSpeed ? speed : -1;
+        } else {
+            way.maxspeed = -1;
+        }
+
+        // tunnel
+        if (parts.size() > 6)  // tunnel 필드는 7번째(6번) 컬럼
+        {
+            way.tunnel = parts[6].trimmed();
+            //if (way.tunnel != "") qDebug() << way.tunnel;
+        }
+
+        ways.append(way);
+    }
+
+    //qDebug() << "parseWaysFromCsv: loaded way count =" << ways.size() << "ways from" << filename;
+    return ways;
+}
+
+int MainWindow::getCurrentSpeedLimit(qint64 nodeId)
+{
+    int speedLimit = -1;
+    for (const Way &way : m_ways) {
+        if (way.node_ids.contains(nodeId)) {
+            //qDebug() << nodeId << "maxspeed =" << way.maxspeed;
+            if (way.maxspeed > 0) {
+                if (speedLimit < 0 || way.maxspeed < speedLimit) // 가장 낮은 제한속도 선택 (안전하게)
+                    speedLimit = way.maxspeed;
+            }
+        }
+    }
+    return speedLimit;
+}
+
+// tunnel edge
+QSet<QPair<qint64, qint64>> MainWindow::extractTunnelEdges(const QVector<Way>& ways) {
+    QSet<QPair<qint64, qint64>> Edges;
+    for (const Way& way : ways) {
+        QString tunnelValue = way.tunnel.trimmed().toLower();
+        if (tunnelValue == "yes") {
+            if (way.node_ids.size() == 2) {
+                m_tunnelEdges.insert(qMakePair(way.node_ids[0], way.node_ids[1]));
+            }
+            // node_ids가 여러 개면 연속쌍 처리!
+        }
+    }
+    return m_tunnelEdges;
+}
+
+void MainWindow::loadMapData()
+{
+    if (!m_mapView) return;
+    m_nodes = parseNodesFromCsv("/run/media/mmcblk1p1/merged_nodes.csv");
+    m_ways = parseWaysFromCsv("/run/media/mmcblk1p1/merged_ways.csv");
+
+    m_tunnelEdges = extractTunnelEdges(m_ways);
+
+    qDebug() << "[디버깅] nodes loaded =" << m_nodes.size();
+    qDebug() << "[디버깅] ways loaded =" << m_ways.size();
+
+    m_mapView->setMapData(m_nodes, m_ways);
+
+    if (!m_nodes.isEmpty())
+        m_mapView->setCurrentLocation(37.4777, 126.8805);
+}
+
+// 소리 경고
+void MainWindow::playSpeedAlert()
+{
+    if (!m_speedAlertPlayer) {
+        m_speedAlertPlayer = new QMediaPlayer(this);
+        m_speedAlertPlayer->setMedia(QUrl("qrc:/sounds/warning.wav"));  // 경고음 경로 (리소스 파일 등록 권장)
+        m_speedAlertPlayer->setVolume(100);
+    }
+
+    if (!m_speedAlertOn) {
+        m_speedAlertPlayer->play();
+        m_speedAlertOn = true;
+    }
+}
+
+void MainWindow::stopSpeedAlert()
+{
+    if (m_speedAlertPlayer && m_speedAlertPlayer->state() == QMediaPlayer::PlayingState) {
+        m_speedAlertPlayer->stop();
+    }
+    m_speedAlertOn = false;
+}
+
+
+// 제한속도 팝업 및 경고 처리 함수
+void MainWindow::handleSpeedLimitUI(int curSpeedLimit, int currentSpeed)
+{
+    if (curSpeedLimit <= 0) {
+        if (m_speedLimitPopup) {
+            m_speedLimitPopup->close();
+            delete m_speedLimitPopup;
+            m_speedLimitPopup = nullptr;
+        }
+        m_prevSpeedLimit = -1;
+        stopSpeedAlert(); // ⬅ 경고음 중지
+        if (speedLimitLabel) speedLimitLabel->hide();
+        return;
+    }
+
+    if (curSpeedLimit != m_prevSpeedLimit) {
+        if (m_speedLimitPopup) {
+            m_speedLimitPopup->close();
+            delete m_speedLimitPopup;
+            m_speedLimitPopup = nullptr;
+        }
+        m_speedLimitPopup = new QMessageBox(QMessageBox::Information,
+                                            "제한속도 안내",
+                                            QString("제한속도: %1 km/h").arg(curSpeedLimit),
+                                            QMessageBox::NoButton, this);
+        m_speedLimitPopup->setModal(false);
+        m_speedLimitPopup->show();
+        m_speedLimitPopup->raise();
+
+        m_prevSpeedLimit = curSpeedLimit;
+    }
+
+    // 과속 상태
+    if (currentSpeed > curSpeedLimit) {
+        playSpeedAlert(); // ⬅ QMediaPlayer 버전 호출
+        if (speedLimitLabel) {
+            speedLimitLabel->setStyleSheet("color: red; font-weight: bold;");
+            speedLimitLabel->setText(QString("속도: %1 km/h (과속)").arg(currentSpeed));
+            speedLimitLabel->show();
+            speedLimitLabel->raise();
+        }
+    }
+    // 정상 속도 상태
+    else {
+        stopSpeedAlert();
+        if (speedLimitLabel) {
+            speedLimitLabel->setStyleSheet("color: black;");
+            speedLimitLabel->setText(QString("속도: %1 km/h").arg(currentSpeed));
+            speedLimitLabel->show();
+            speedLimitLabel->raise();
+        }
+    }
+}
+
+// 터널 진입/이탈 경고 처리 함수
+void MainWindow::handleTunnelAlert(bool isTunnelNow, const QString& wayName, qint64 prevNid, qint64 currNid, double wayLength)
+{
+    if (isTunnelNow && !m_inTunnel) {
+        if (m_tunnelPopup) {
+            delete m_tunnelPopup;
+            m_tunnelPopup = nullptr;
+        }
+        m_tunnelPopup = new QMessageBox(QMessageBox::Information, "터널 진입",
+                                       "터널 구간에 진입했습니다.",
+                                       QMessageBox::NoButton, this);
+        m_tunnelPopup->setModal(false);
+        m_tunnelPopup->show();
+        m_tunnelPopup->raise();
+        m_inTunnel = true;
+
+        qDebug().noquote() << QString("[터널 진입] %1 -> %2, %3, %4 m")
+                                .arg(prevNid).arg(currNid)
+                                .arg(wayName.isEmpty() ? "-" : wayName)
+                                .arg(wayLength, 0, 'f', 2);
+    }
+    else if (!isTunnelNow && m_inTunnel) {
+        if (m_tunnelPopup) {
+            m_tunnelPopup->close();
+            delete m_tunnelPopup;
+            m_tunnelPopup = nullptr;
+        }
+        m_inTunnel = false;
+
+        qDebug().noquote() << QString("[터널 종료] %1 -> %2").arg(prevNid).arg(currNid);
+    }
+}
+
+
+
+// 시뮬레이션 함수
+// 터널/속도제한 연속 경고 수정
+bool m_inTunnel = false;
+int m_prevSpeedLimit = -1;
+
+double m_travelledOnSegment = 0.0; // 속도 반영
+
+#if 0
+void MainWindow::startRouteSimulation()
+{
+    // 라벨 없으면 생성
+    if (!speedLimitLabel) {
+        speedLimitLabel = new QLabel(this);   // 부모는 MainWindow
+        speedLimitLabel->setGeometry(20, 20, 250, 40); // 위치와 크기
+        speedLimitLabel->setAlignment(Qt::AlignCenter);
+        speedLimitLabel->setStyleSheet(
+            "QLabel { background-color: white; color: black; "
+            "padding: 4px 8px; font-size: 100px; font-weight: bold; "
+            "border: 1px solid gray; border-radius: 5px; }"
+        );
+        speedLimitLabel->hide(); // 초기에는 숨김
+    }
+
+    const QVector<qint64> &routeIds = m_mapView->getRouteNodeIds();
+    if (routeIds.size() < 2) return;
+
+    if (m_simulateTimer) {
+        m_simulateTimer->stop();
+        delete m_simulateTimer;
+    }
+    m_currentRouteIdx = 0;
+    m_travelledOnSegment = 0.0;
+
+    m_simulateTimer = new QTimer(this);
+    qDebug() << "[Sim] 시뮬레이션 시작 - 경로 노드 수:" << routeIds.size();
+
+    // 경로 구간 거리 계산 - 하버사인
+    auto calculateDistance = [](const Node* a, const Node* b) -> double {
+        if (!a || !b) return 0.0;
+        constexpr double R = 6371000.0;
+        double lat1 = a->lat * M_PI / 180.0;
+        double lat2 = b->lat * M_PI / 180.0;
+        double dLat = (b->lat - a->lat) * M_PI / 180.0;
+        double dLon = (b->lon - a->lon) * M_PI / 180.0;
+        double h = sin(dLat/2) * sin(dLat/2) +
+                   cos(lat1) * cos(lat2) *
+                   sin(dLon/2) * sin(dLon/2);
+        double c = 2 * atan2(sqrt(h), sqrt(1-h));
+        return R * c;
+    };
+
+    connect(m_simulateTimer, &QTimer::timeout, this, [=]() mutable {
+        if (!shm_ptr) return;
+        
+        if (m_currentRouteIdx >= routeIds.size()) {
+            m_simulateTimer->stop();
+            qDebug() << "[Sim] 목적지 도착";
+            return;
+        }
+
+        // ---- 속도 기반 보간 이동 ----
+        double speed_kmh = shm_ptr->speed;        // CAN 실시간 속도
+        double speed_mps = speed_kmh / 3.6;       // m/s
+        double deltaT    = 0.05;                  // 50ms
+        double moveDist  = speed_mps * deltaT;    // 이번 tick 이동(m)
+
+        const Node *currNode = m_mapView->getNodeById(routeIds[m_currentRouteIdx]);
+        const Node *nextNode = m_mapView->getNodeById(routeIds[m_currentRouteIdx+1]);
+        if (!currNode || !nextNode) return;
+
+        double segLen = calculateDistance(currNode, nextNode);
+        m_travelledOnSegment += moveDist;
+
+        // 구간을 다 채웠으면 다음 구간으로
+        while (m_travelledOnSegment >= segLen && m_currentRouteIdx < routeIds.size()-2) {
+            m_currentRouteIdx++;
+            m_travelledOnSegment -= segLen;
+            currNode = m_mapView->getNodeById(routeIds[m_currentRouteIdx]);
+            nextNode = m_mapView->getNodeById(routeIds[m_currentRouteIdx+1]);
+            segLen   = calculateDistance(currNode, nextNode);
+        }
+
+        // 현재 구간 내 위치 비율
+        double ratio = m_travelledOnSegment / segLen;
+        double lat = currNode->lat + (nextNode->lat - currNode->lat) * ratio;
+        double lon = currNode->lon + (nextNode->lon - currNode->lon) * ratio;
+
+        // 현재 구간 정보
+        int idx = m_currentRouteIdx;
+        qint64 currNodeId = routeIds[m_currentRouteIdx];
+        //qint64 curr_nid = routeIds[idx];
+        qint64 prev_nid = (idx > 0) ? routeIds[idx - 1] : -1;
+        const Node* currNode = m_mapView->getNodeById(currNodeId);
+
+        //const Node* node = m_mapView->getNodeById(curr_nid);
+
+        if (!currNode) {
+            qDebug() << "[Sim] 현재 노드 없음" << currNodeId;
+            m_currentRouteIdx++;
+            return;
+        }
+        int curSpeedLimit = -1;
+        bool isTunnelNow = false;
+        QString wayName;
+        double wayLength = 0.0;
+
+        if (idx > 0) {
+            for (const Way& way : m_ways) {
+                if (way.node_ids.size() == 2 &&
+                   ((way.node_ids[0] == prev_nid && way.node_ids[1] == curr_nid) ||
+                    (way.node_ids[1] == prev_nid && way.node_ids[0] == curr_nid))) {
+
+                    if (way.maxspeed > 0) curSpeedLimit = way.maxspeed;
+                    if (way.tunnel.compare("yes", Qt::CaseInsensitive) == 0)
+                        isTunnelNow = true;
+                    wayName = way.name;
+                    wayLength = calculateDistance(
+                        m_mapView->getNodeById(way.node_ids[0]),
+                        m_mapView->getNodeById(way.node_ids[1])
+                    );
+                    break;
+                }
+            }
+        }
+
+        // --- 터널 팝업 제어 ---
+        if (isTunnelNow && !m_inTunnel) {
+            if (m_tunnelPopup) { delete m_tunnelPopup; m_tunnelPopup = nullptr; }
+            m_tunnelPopup = new QMessageBox(QMessageBox::Information, "터널 진입",
+                                            "터널 구간에 진입했습니다.",
+                                            QMessageBox::NoButton, this);
+            m_tunnelPopup->setModal(false);
+            m_tunnelPopup->show();
+            m_inTunnel = true;
+
+            qDebug().noquote() << QString("[터널 진입] %1 -> %2, %3, %4 m")
+                                 .arg(prev_nid).arg(curr_nid)
+                                 .arg(wayName.isEmpty() ? "-" : wayName)
+                                 .arg(wayLength, 0, 'f', 2);
+        }
+        else if (!isTunnelNow && m_inTunnel) {
+            if (m_tunnelPopup) { m_tunnelPopup->close(); delete m_tunnelPopup; m_tunnelPopup = nullptr; }
+            m_inTunnel = false;
+            qDebug().noquote() << QString("[터널 종료] %1 -> %2").arg(prev_nid).arg(curr_nid);
+        }
+
+        // --- 속도제한 팝업 제어 ---
+        if (curSpeedLimit > 0) {
+            if (curSpeedLimit != m_prevSpeedLimit) {
+                // 속도제한 진입 
+                if (m_speedLimitPopup) { m_speedLimitPopup->close(); delete m_speedLimitPopup; m_speedLimitPopup = nullptr; }
+                m_speedLimitPopup = new QMessageBox(QMessageBox::Information,
+                                                    "제한속도 안내",
+                                                    QString("제한속도: %1 km/h").arg(curSpeedLimit),
+                                                    QMessageBox::NoButton, this);
+                m_speedLimitPopup->setModal(false);
+                m_speedLimitPopup->show();
+                QTimer::singleShot(2000, m_speedLimitPopup, [this]() {
+                    if (m_speedLimitPopup) m_speedLimitPopup->close();
+                });
+
+                m_prevSpeedLimit = curSpeedLimit;
+                qDebug().noquote() << QString("[== 진입 ==] %1 km/h | %2 -> %3 | %4 | %5 m")
+                                     .arg(curSpeedLimit).arg(prev_nid).arg(curr_nid)
+                                     .arg(wayName.isEmpty() ? "-" : wayName)
+                                     .arg(wayLength, 0, 'f', 2);
+            }
+            else {
+                // 속도제한구간
+                qDebug().noquote() << QString("[유지] %1 km/h | 구간 노드: %2 -> %3 | 도로명: %4")
+               .arg(m_prevSpeedLimit).arg(prev_nid).arg(curr_nid)
+               .arg(wayName.isEmpty() ? "-" : wayName);
+            }
+            // UI Label 항상 갱신
+            // 🔹 라벨 업데이트
+            speedLimitLabel->setText(
+                QString("제한속도: %1 km/h\n")
+                    .arg(m_prevSpeedLimit)
+            );
+            speedLimitLabel->show();
+            speedLimitLabel->raise();
+   
+        }
+        else if (m_prevSpeedLimit > 0) {
+            // 속도제한 해제
+            if (m_speedLimitPopup) { m_speedLimitPopup->close(); delete m_speedLimitPopup; m_speedLimitPopup = nullptr; }
+            qDebug().noquote() << QString("[== 해제 ==] %1 -> %2").arg(prev_nid).arg(curr_nid);
+            m_prevSpeedLimit = -1;
+        }
+
+        // --- 위치 이동 ---
+        // 진행방향 계산
+        double heading = calculateBearing(currNode->lat, currNode->lon,
+                                          nextNode->lat, nextNode->lon);
+        m_mapView->setCurrentHeading(heading);
+
+        // 지도 업데이트
+        m_mapView->setCurrentLocation(lat, lon);
+        m_mapView->setCurrentRouteIndex(m_currentRouteIdx);
+
+#if 0
+        // 1) 진행 방향 계산 (다음 노드가 있으면)
+        if (nextNode) {
+            double heading = calculateBearing(currNode->lat, currNode->lon,
+                                              nextNode->lat, nextNode->lon);
+            m_mapView->setCurrentHeading(heading);
+        }
+        m_mapView->setCurrentLocation(currNode->lat, currNode->lon);
+        m_mapView->setCurrentRouteIndex(m_currentRouteIdx);
+
+        m_currentRouteIdx++;
+#endif
+    });
+
+    m_simulateTimer->start(50);
+}
+#endif
+
+void MainWindow::startRouteSimulation()
+{
+    // 제한속도 라벨 생성
+    if (!speedLimitLabel) {
+        speedLimitLabel = new QLabel(this);
+        speedLimitLabel->setGeometry(20, 20, 250, 40);
+        speedLimitLabel->setAlignment(Qt::AlignCenter);
+        speedLimitLabel->setStyleSheet(
+            "QLabel { background-color: white; color: black; "
+            "padding: 4px 8px; font-size: 100px; font-weight: bold; "
+            "border: 1px solid gray; border-radius: 5px; }"
+        );
+        speedLimitLabel->hide();
+    }
+
+    const auto &routeIds = m_mapView->getRouteNodeIds();
+    if (routeIds.size() < 2) return;
+
+    if (m_simulateTimer) {
+        m_simulateTimer->stop();
+        delete m_simulateTimer;
+    }
+
+    m_currentRouteIdx = 0;
+    m_travelledOnSegment = 0.0;
+
+    // 거리 계산
+    auto calculateDistance = [](const Node* a, const Node* b) -> double {
+        if (!a || !b) return 0.0;
+        constexpr double R = 6371000.0;
+        double lat1 = a->lat * M_PI / 180.0;
+        double lat2 = b->lat * M_PI / 180.0;
+        double dLat = (b->lat - a->lat) * M_PI / 180.0;
+        double dLon = (b->lon - a->lon) * M_PI / 180.0;
+        double h = sin(dLat/2) * sin(dLat/2) +
+                   cos(lat1) * cos(lat2) * sin(dLon/2) * sin(dLon/2);
+        double c = 2 * atan2(sqrt(h), sqrt(1 - h));
+        return R * c;
+    };
+
+    m_simulateTimer = new QTimer(this);
+    connect(m_simulateTimer, &QTimer::timeout, this, [=]() mutable {
+        if (!shm_ptr) return;
+        if (m_currentRouteIdx >= routeIds.size()) {
+            m_simulateTimer->stop();
+            qDebug() << "[Sim] 목적지 도착";
+            return;
+        }
+
+        // 속도 기반 위치 이동
+        double speed_kmh = shm_ptr->speed;
+        double speed_mps = speed_kmh / 3.6;
+        constexpr double deltaT = 0.05;
+        double moveDist = speed_mps * deltaT;
+
+        const Node* currNode = m_mapView->getNodeById(routeIds[m_currentRouteIdx]);
+        const Node* nextNode = m_mapView->getNodeById(routeIds[m_currentRouteIdx + 1]);
+        if (!currNode || !nextNode) return;
+
+        double segLen = calculateDistance(currNode, nextNode);
+        m_travelledOnSegment += moveDist;
+
+        while (m_travelledOnSegment >= segLen && m_currentRouteIdx < routeIds.size() - 2) {
+            m_currentRouteIdx++;
+            m_travelledOnSegment -= segLen;
+            currNode = m_mapView->getNodeById(routeIds[m_currentRouteIdx]);
+            nextNode = m_mapView->getNodeById(routeIds[m_currentRouteIdx + 1]);
+            segLen = calculateDistance(currNode, nextNode);
+        }
+
+        double ratio = m_travelledOnSegment / segLen;
+        double lat = currNode->lat + (nextNode->lat - currNode->lat) * ratio;
+        double lon = currNode->lon + (nextNode->lon - currNode->lon) * ratio;
+
+        // 제한속도/터널 정보 분석
+        int idx = m_currentRouteIdx;
+        qint64 currNodeId = routeIds[idx];
+        qint64 prevNid = (idx > 0) ? routeIds[idx - 1] : -1;
+
+        int curSpeedLimit = -1;
+        bool isTunnelNow = false;
+        QString wayName;
+        double wayLength = 0.0;
+
+        if (idx > 0) {
+            for (const Way& way : m_ways) {
+                if (way.node_ids.size() == 2 &&
+                    ((way.node_ids[0] == prevNid && way.node_ids[1] == currNodeId) ||
+                     (way.node_ids[1] == prevNid && way.node_ids[0] == currNodeId))) {
+
+                    if (way.maxspeed > 0) curSpeedLimit = way.maxspeed;
+                    if (way.tunnel.compare("yes", Qt::CaseInsensitive) == 0)
+                        isTunnelNow = true;
+                    wayName = way.name;
+                    wayLength = calculateDistance(
+                        m_mapView->getNodeById(way.node_ids[0]),
+                        m_mapView->getNodeById(way.node_ids[1])
+                    );
+                    break;
+                }
+            }
+        }
+
+        // 팝업/UI 함수 호출
+        handleTunnelAlert(isTunnelNow, wayName, prevNid, currNodeId, wayLength);
+        handleSpeedLimitUI(curSpeedLimit, static_cast<int>(speed_kmh));
+
+        // 지도 위치 업데이트
+        double heading = calculateBearing(currNode->lat, currNode->lon,
+                                          nextNode->lat, nextNode->lon);
+        m_mapView->setCurrentHeading(heading);
+        m_mapView->setCurrentLocation(lat, lon);
+        m_mapView->setCurrentRouteIndex(m_currentRouteIdx);
+    });
+
+    m_simulateTimer->start(50);
 }

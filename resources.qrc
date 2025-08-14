@@ -90,5 +90,9 @@
         <file>images/headlamp_preview_off.png</file>
         <file>images/delete.png</file>
         <file>images/trash.png</file>
+        <file>images/Navi_home.png</file>
+        <file>images/Navi_office.png</file>
+        <file>images/Navi_pos.png</file>
+        <file>alert/warning.wav</file>
     </qresource>
 </RCC>

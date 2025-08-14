@@ -26,7 +26,12 @@ SOURCES += \
     trunk_page.cpp \
     update_handler.cpp \
     video_page.cpp \
-    window_page.cpp
+    window_page.cpp \
+    mapview.cpp \
+    navi_page.cpp \
+    navi_utils.cpp
+
+
 
 HEADERS += \
     account/accountselectpage.h \
@@ -46,7 +51,10 @@ HEADERS += \
     trunk_page.h \
     update_handler.h \
     video_page.h \
-    window_page.h
+    window_page.h \
+    mapview.h \
+    navi_page.h \
+    navi_utils.h
 
 FORMS += \
     account/accountselectpage.ui \

@@ -5262,7 +5262,7 @@ QPushButton:pressed {
 </string>
      </property>
      <property name="currentIndex">
-      <number>0</number>
+      <number>3</number>
      </property>
      <widget class="QWidget" name="page_music">
       <property name="styleSheet">
@@ -5874,6 +5874,75 @@ QListWidget::item:selected {
     border-radius: 12px;
 }</string>
       </property>
+      <widget class="QPushButton" name="dest_home">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>42</y>
+         <width>101</width>
+         <height>131</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>home</string>
+       </property>
+      </widget>
+      <widget class="QPushButton" name="dest_office">
+       <property name="geometry">
+        <rect>
+         <x>120</x>
+         <y>40</y>
+         <width>101</width>
+         <height>131</height>
+        </rect>
+       </property>
+       <property name="text">
+        <string>office</string>
+       </property>
+      </widget>
+      <widget class="QListWidget" name="list_dest_places">
+       <property name="geometry">
+        <rect>
+         <x>10</x>
+         <y>190</y>
+         <width>211</width>
+         <height>411</height>
+        </rect>
+       </property>
+       <property name="font">
+        <font>
+         <pointsize>28</pointsize>
+        </font>
+       </property>
+      </widget>
+      <widget class="QWidget" name="mapContainer" native="true">
+       <property name="geometry">
+        <rect>
+         <x>230</x>
+         <y>10</y>
+         <width>1451</width>
+         <height>1131</height>
+        </rect>
+       </property>
+       <widget class="QLabel" name="speedLimitLabel">
+        <property name="geometry">
+         <rect>
+          <x>1160</x>
+          <y>900</y>
+          <width>271</width>
+          <height>221</height>
+         </rect>
+        </property>
+        <property name="font">
+         <font>
+          <pointsize>36</pointsize>
+         </font>
+        </property>
+        <property name="text">
+         <string>TextLabel</string>
+        </property>
+       </widget>
+      </widget>
      </widget>
      <widget class="QWidget" name="page_home">
       <property name="styleSheet">

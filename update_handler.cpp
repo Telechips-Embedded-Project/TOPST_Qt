@@ -53,46 +53,6 @@ void startSensorTimer(MainWindow *w)
     sensorTimer->start(500);
 }
 
-/*
-void updateSensorLabel(MainWindow* w)
-{
-    if (!shm_ptr || !w) return;
-    Ui::MainWindow* ui = w->getUi(); if (!ui) return;
-
-    const int t = static_cast<int>(shm_ptr->sensor.temperature);
-    const int h = static_cast<int>(shm_ptr->sensor.humidity);
-
-    qDebug() << "[SENSOR] t=" << t << "h=" << h;
-
-    const int FONT_PX = 26;
-
-    ui->label_sensor->setTextFormat(Qt::RichText);
-    ui->label_sensor->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
-    ui->label_sensor->setStyleSheet(QString("color:white; padding-bottom:2px; font-size:%1px;").arg(FONT_PX));
-
-    
-    // QString html = QString(
-    //     "<span style='white-space:nowrap; vertical-align:middle;'>"
-    //     "<span style=\"font-family:'Noto Emoji'; position:relative; top:-1px;\">🌡</span>&nbsp;%1°C"
-    //     "&nbsp;&nbsp;<span style=\"font-family:'Noto Emoji'; position:relative; top:-1px;\">💧</span>&nbsp;%2%"
-    //     "</span>").arg(t).arg(h);
-        
-
-    QString html = QString(
-        "<span style='white-space:nowrap; vertical-align:middle;'>"
-        "<span style=\"font-family:'Noto Emoji'; position:relative; top:-1px;\">🌡</span>&nbsp;%1°C"
-        "&nbsp;&nbsp;<span style=\"font-family:'Noto Emoji'; position:relative; top:-1px;\">💧</span>&nbsp;%2%"
-        "</span>").arg(t).arg(h);    
-
-    ui->label_sensor->setText(html);
-
-    QFontMetrics fm(ui->label_sensor->font());
-    int need = fm.size(Qt::TextSingleLine, QStringLiteral("100°C    100%")).width();
-    ui->label_sensor->setMinimumWidth(need + 40);
-    ui->label_sensor->setMinimumHeight(FONT_PX + 12);
-}
-*/
-
 void updateSensorLabel(MainWindow* w)
 {
     if (!shm_ptr || !w) return;
@@ -155,42 +115,6 @@ void updateButtonimage(MainWindow* w)
         lastAcLevel = acLevel;
     }
 
-    /*
-    // ----- Ambient -----
-    const int amblevel = shm_ptr->ambient.brightness_level; // 0=OFF, 1=LOW, 2=MEDIUM, 3=HIGH
-    const QString ambcolor = QString::fromLatin1(shm_ptr->ambient.color[0] ? shm_ptr->ambient.color : "");
-
-    static int     lastAmbLevel = -1;
-    static QString lastAmbColor;
-
-    auto pv = w->findChild<AmbientPreview*>("previewAmbient");
-
-    if (amblevel != lastAmbLevel)
-    {
-        if (amblevel <= 0) {
-            handleAmbientPowerButton(w, ui->pushButton_ambient_off);
-        } else {
-            handleAmbientPowerButton(w, ui->pushButton_ambient_on);
-            handleAmbientColorButton(w, ambcolor.isEmpty() ? "red" : ambcolor);
-
-            if      (amblevel == 1) handleAmbientBrightnessButton(w, "LOW");
-            else if (amblevel == 2) handleAmbientBrightnessButton(w, "MEDIUM");
-            else                 handleAmbientBrightnessButton(w, "HIGH"); // 3 이상 HIGH로 취급
-        }
-
-        if (pv) pv->applyState(amblevel, ambcolor.isEmpty() ? "red" : ambcolor);
-
-        lastAmbLevel = amblevel;
-        lastAmbColor = ambcolor;
-    }
-    else if (amblevel > 0 && ambcolor.compare(lastAmbColor, Qt::CaseInsensitive) != 0) {
-            handleAmbientColorButton(w, ambcolor.isEmpty() ? "red" : ambcolor);
-
-            if (pv) pv->applyState(amblevel, ambcolor);
-
-            lastAmbColor = ambcolor;
-    }
-    */
 
     // ----- Ambient -----
     const int amblevel = shm_ptr->ambient.brightness_level; // 0=OFF, 1=LOW, 2=MEDIUM, 3=HIGH

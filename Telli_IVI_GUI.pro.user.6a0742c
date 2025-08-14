@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE QtCreatorProject>
-<!-- Written by QtCreator 6.0.2, 2025-07-14T11:37:32. -->
+<!-- Written by QtCreator 6.0.2, 2025-08-12T22:38:52. -->
 <qtcreator>
  <data>
   <variable>EnvironmentId</variable>
@@ -242,8 +242,8 @@
     <value type="int" key="PE.EnvironmentAspect.Base">2</value>
     <valuelist type="QVariantList" key="PE.EnvironmentAspect.Changes"/>
     <value type="QString" key="ProjectExplorer.ProjectConfiguration.DisplayName">Telli_IVI_GUI2</value>
-    <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">Qt4ProjectManager.Qt4RunConfiguration:/home/pi05/linux/Qt/Telli_IVI_GUI_R05/Telli_IVI_GUI.pro</value>
-    <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">/home/pi05/linux/Qt/Telli_IVI_GUI_R05/Telli_IVI_GUI.pro</value>
+    <value type="QString" key="ProjectExplorer.ProjectConfiguration.Id">Qt4ProjectManager.Qt4RunConfiguration:/home/pi05/topst/QT/Telli_IVI_GUI_R19/Telli_IVI_GUI.pro</value>
+    <value type="QString" key="ProjectExplorer.RunConfiguration.BuildKey">/home/pi05/topst/QT/Telli_IVI_GUI_R19/Telli_IVI_GUI.pro</value>
     <value type="bool" key="RunConfiguration.UseCppDebugger">false</value>
     <value type="bool" key="RunConfiguration.UseCppDebuggerAuto">true</value>
     <value type="bool" key="RunConfiguration.UseLibrarySearchPath">true</value>
